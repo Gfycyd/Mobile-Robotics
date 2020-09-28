@@ -56,14 +56,17 @@ for i = 1:6
     landmark(2*i-1) = measure(2*i)*cos(measure(2*i-1));
     landmark(2*i) = measure(2*i)*sin(measure(2*i-1));
 end
-landmark_cov;
+
+l_cov=0.4;
+landmark_cov = diag([l_cov,l_cov,l_cov,l_cov,l_cov,l_cov,l_cov,l_cov,l_cov,l_cov,l_cov,l_cov]);
+
 %==== Setup state vector x with pose and landmark vector ====
 x = [pose ; landmark];
 
 %==== Setup covariance matrix P with pose and landmark covariances ====
 P = [pose_cov zeros(3, 2*k) ; zeros(2*k, 3) landmark_cov];
 
-%==== Plot initial state and conariance ====
+%==== Plot initial state and covariance ====
 last_x = x;
 drawTrajAndMap(x, last_x, P, 0);
 
@@ -102,35 +105,35 @@ while ischar(tline)
     measure = arr';
 
 
-    %==== Update Step ====
-    %==== (Notice: update state x[] and covariance P[] using input measurement data and measure_cov[]) ====
-    
-    % Write your code here...
-    %l_xy = zeros(12,1)
-    for i = 1:6
-        z = [measure(2*i); measure(2*i-1)];
-
-        l_x = x_pre(3+2*i-1);
-        l_y = x_pre(3+2*i);
-
-        delta= [l_x - x_pre(1);
-                l_y - x_pre(2)];
-
-        q = delta' * delta;
-        zhat = [sqrt(q); wrapToPi(atan2(delta(2),delta(1)) - x_pre(3))];
-
-        F_xj = zeros(5,3+2*k); F_xj(1:3,1:3) = eye(3);
-        F_xj(4:5, 3+2*i-1:3+2*i) = eye(2);
-
-        H_ij = [-sqrt(q)*delta(1) -sqrt(q)*delta(2) 0 sqrt(q)*delta(1) sqrt(q)*delta(2);
-                delta(2)          -delta(1)        -q -delta(2)       delta(1)]/q;
-
-        H_t = H_ij*F_xj;
+    %==== Update Step ====    
+    for i=1:2:2*k-1
         
-        K = P_pre*H_t'*inv(H_t*P_pre*H_t'+ measure_cov);
-
-        x_pre = x_pre + K*(z-zhat);
-        P_pre = (eye(3+2*k)-K*H_t)*P_pre;
+        delta_x = x_pre(3+i)-x_pre(1);
+        delta_y = x_pre(3+i+1)-x_pre(2);
+        delta = [delta_x;delta_y];
+        q=(delta'*delta)^0.5;
+        beta_pred = wrapToPi(atan2(delta_y, delta_x) - x_pre(3));
+        z_pred = [q;beta_pred];
+        
+        F = zeros(5,3+2*k);
+        F(1:3,1:3)=eye(3);
+        F(4:5, 3+i:3+i+1)=eye(2);
+        
+        
+        H=[-q*delta_x,-q*delta_y,0,q*delta_x,q*delta_y; delta_y,-delta_x,-(q^2),-delta_y,delta_x];
+        H=H/(q^2);
+        H=H*F;
+        
+        temp = inv(H*P_pre*H' + measure_cov);
+        K=P_pre*H'*temp;
+        
+        z_actual = [measure(i+1);measure(i)];
+        
+        x_pre = x_pre + K*(z_actual-z_pred);
+        P_pre= (eye(3+2*k)-K*H)*P_pre;
+        
+          
+    
     end
 
     x = x_pre;
@@ -145,22 +148,31 @@ while ischar(tline)
     tline = fgets(fid);
 end
 
+
 %==== EVAL: Plot ground truth landmarks ====
 
-% Write your code here...
+% plot true landmarks
+ground_truth = [3 6; 3 12; 7 8; 7 14; 11 6; 11 12];
+scatter(ground_truth(:,1), ground_truth(:,2), '*k');
+
+
+
+% calculate the euclidean distances
+landmarks_predicted = reshape(x(4:end), 2, k)';
+euclidean_distance = sqrt(sum((ground_truth - landmarks_predicted).^ 2, 2));
+
+disp(euclidean_distance)
+
+
+% calculate the Mahalanobis distances
 gt_x = [ 3 3 7 7 11 11];
 gt_y = [6 12 8 14 6 12];
 
-scatter(gt_x, gt_y, '*k')
-
-euclidean = zeros(1,6);
 mahal = zeros(1,6);
 
 for i = 1:6
     e = [ gt_x(i)-x(3+i*2-1);gt_y(i)-x(3+i*2)];
     sigma = P(3+2*i-1:3+2*i,3+2*i-1:3+2*i);
-
-    euclidean(i) = sqrt(sum(e.*e));
     mahal(i) = sqrt(e'*sigma*e);
 
 end
