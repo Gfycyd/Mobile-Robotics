@@ -29,7 +29,7 @@ tline = fgets(fid);
 arr = str2num(tline);
 measure = arr';
 t = 1;
- 
+
 %==== Setup control and measurement covariances ===
 control_cov = diag([sig_x2, sig_y2, sig_alpha2]);
 measure_cov = diag([sig_beta2, sig_r2]);
@@ -73,13 +73,13 @@ while ischar(tline)
     
     %==== Predict Step ====
     %==== (Notice: predict state x_pre[] and covariance P_pre[] using input control data and control_cov[]) ====
-    F = zeros(3+2*number_of_landmarks,3);
-    F(1:3,1:3)  = eye(3);
+    temp = zeros(3+2*number_of_landmarks,3);
+    temp(1:3,1:3)  = eye(3);
 
-    x_pre = x + F*[d*cos(at);d*sin(at); alpha];
+    x_pre = x + temp*[d*cos(at);d*sin(at); alpha];
     F_p = [[1 0 -d*sin(alpha); 0 1 d*cos(alpha); 0 0   1] zeros(3, 2*number_of_landmarks); zeros(2*number_of_landmarks, 3) eye(2*number_of_landmarks)];
 
-    P_pre =  F_p*P*F_p' + F*control_cov*F';
+    P_pre =  F_p*P*F_p' + temp*control_cov*temp';
     %==== Draw predicted state x_pre[] and covariance P_pre[] ====
     drawTrajPre(x_pre, P_pre);
     
@@ -89,34 +89,40 @@ while ischar(tline)
     measure = arr';
 
 
-    %==== Update Step ====
-    for i=1:2:2*number_of_landmarks-1
+    %==== Update Step ====   implementation of what I studyed in 1st part
+    for i=1:number_of_landmarks
         
-        delta_x = x_pre(3+i)-x_pre(1);
-        delta_y = x_pre(3+i+1)-x_pre(2);
+        % take our measurements
+        r_measurement = measure(i*2);
+        beta_measurement = measure(i*2-1);
+        
+        
+        temp = zeros(5,15);
+        temp(1:3,1:3)=eye(3);
+        temp(4:5, 2+i*2:3+i*2)=eye(2);
+        
+        
+        % delta_x and delta_y as it was in prev tasks
+        delta_x = x_pre(2+i*2)-x_pre(1);
+        delta_y = x_pre(3+i*2)-x_pre(2);
+        
         delta = [delta_x;delta_y];
-        q=(delta'*delta)^0.5;
-        beta_pred = wrapToPi(atan2(delta_y, delta_x) - x_pre(3));
-        z_pred = [q;beta_pred];
         
-        F = zeros(5,3+2*number_of_landmarks);
-        F(1:3,1:3)=eye(3);
-        F(4:5, 3+i:3+i+1)=eye(2);
+        % calculation of r
+        r=sqrt(delta'*delta);
         
+        % calculation of beta
+        beta = wrapToPi(atan2(delta(2,1), delta(1,1)) - x_pre(3));
+    
+        H_p =[-delta(1,1)/r, -delta(2,1)/r,   0, delta(1,1)/r,  delta(2,1)/r;
+              delta(2,1)/r^2,-delta(1,1)/r^2,-1,-delta(2,1)/r^2,delta(1,1)/r^2]*temp;
+       
+        kalman_gain=P_pre*H_p'*pinv(H_p*P_pre*H_p' + measure_cov);
+        diffr = [r_measurement-r beta_measurement - beta]';
+
+        P_pre= (eye(15)-kalman_gain*H_p)*P_pre;
+        x_pre = x_pre + kalman_gain*diffr;
         
-        H=[-q*delta_x,-q*delta_y,0,q*delta_x,q*delta_y; delta_y,-delta_x,-(q^2),-delta_y,delta_x];
-        H=H/(q^2);
-        H=H*F;
-        
-        temp = inv(H*P_pre*H' + measure_cov);
-        K=P_pre*H'*temp;
-        
-        z_actual = [measure(i+1);measure(i)];
-        
-        x_pre = x_pre + K*(z_actual-z_pred);
-        P_pre= (eye(3+2*number_of_landmarks)-K*H)*P_pre;
-        
-          
     
     end
 
